@@ -1,43 +1,54 @@
 
-# Process Scanner & Shellcode Injector
 
-<a href="https://git.io/typing-svg"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&width=435&lines=Process+Injection+Demonstration;Windows+Remote+Process+Scanner+&+Shellcode+Injector;" alt="Typing SVG" /></a>
+# Process Scanner & Shellcode Injector (v2)
 
-A robust Windows tool designed for scanning specific processes by name and injecting shellcode into them. This tool is geared towards educational purposes and malware analysis, showcasing how process injection operates within Windows environments.
+<a href="https://git.io/typing-svg"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&pause=1000&width=435&lines=Process+Injection+Techniques+Update;Windows+Remote+Process+Scanner+&+Shellcode+Injector+v2;" alt="Typing SVG" /></a>
 
-**Note**: This tool is solely intended for use in controlled environments like malware research, pentesting, or debugging. Unauthorized or malicious use is strictly prohibited.
+This is the second version of a powerful Windows tool designed to scan for a specific process by its name and inject shellcode into it. This version introduces enhancements over the first version, offering improved process enumeration techniques for more comprehensive scanning. The tool remains targeted for educational purposes and malware analysis, showing how process injection works within Windows environments.
+
+**Note**: This tool is intended for controlled environments like malware research, pentesting, or debugging. It should never be used for malicious purposes.
+
+---
+
+## New in Version 2
+
+In the first version, we used `CreateToolHelp32Snapshot` for process enumeration, which, although effective, might not capture all processes in certain scenarios. **This second version replaces `CreateToolHelp32Snapshot` with `EnumProcesses`**, offering a more thorough approach to process enumeration. 
+
+**Why the update?**  
+Malware authors often seek to evade detection by implementing process scanning techniques in various ways. By using multiple approaches for process enumeration, they increase unpredictability in their behavior. This version demonstrates an alternative technique that broadens the scope of scanning, making the tool more robust and unpredictable.
 
 ---
 
 ## Features
 
-- Scans through all active processes in the system.
-- Locates a target process using a user-defined process name.
-- Injects shellcode into the target process if identified.
-- Includes feedback and logging during the injection process.
+- Scans through all active processes using `EnumProcesses`.
+- Locates a target process based on user input.
+- Injects shellcode into the identified process.
+- Provides detailed feedback and logs during the injection process.
 
 ---
 
 ## Prerequisites
 
-- **Operating System**: Windows (with admin privileges)
+- **Operating System**: Windows (requires admin privileges)
 - **Compiler**: MinGW or Visual Studio (MSVC)
-- **Windows SDK**: Necessary for process enumeration and memory manipulation APIs.
-- **Knowledge**: Familiarity with shellcode and process injection concepts.
+- **Windows SDK**: Required for process enumeration and memory manipulation APIs.
+- **Knowledge**: Familiarity with shellcode and process injection principles.
 
 ---
 
 ## How It Works
 
-The program leverages the `CreateToolhelp32Snapshot` API to create a snapshot of running processes and iterates over them, comparing each process name to the user-provided target. If a match is found, the target process is opened, memory is allocated, the shellcode is injected, and a new thread is created to execute the injected shellcode.
+This version now uses the `EnumProcesses` API to enumerate all active processes in the system. Once the list of processes is obtained, each process is opened and its name is retrieved using `GetModuleBaseName`. The name is compared with the user-provided target, and if matched, the shellcode is injected using a similar approach to the first version: memory allocation, shellcode writing, and remote thread creation.
 
 ### Injection Workflow:
 
-1. **Process Scanning**: Scans all running processes and identifies the target based on user-provided input.
-2. **Process Opening**: Opens the identified target process using `PROCESS_ALL_ACCESS` privileges.
-3. **Memory Allocation**: Allocates executable memory space in the target process.
-4. **Shellcode Injection**: Injects the shellcode into the allocated memory.
-5. **Remote Thread Execution**: Creates a remote thread in the target process to execute the shellcode.
+1. **Process Scanning**: Scans all processes using `EnumProcesses` to get a full list of running processes.
+2. **Process Name Matching**: Retrieves and compares each process’s name to the target process name.
+3. **Process Opening**: Opens the identified target process with `PROCESS_ALL_ACCESS` privileges.
+4. **Memory Allocation**: Allocates executable memory in the target process.
+5. **Shellcode Injection**: Injects shellcode into the allocated memory.
+6. **Remote Thread Execution**: Creates a remote thread in the target process to execute the shellcode.
 
 ---
 
@@ -53,7 +64,7 @@ cd process-scanner-shellcode-injector
 
 #### Using MinGW (`gcc`):
 ```bash
-gcc -o scanner_injector.exe scanner_injector.c -lkernel32 -luser32
+gcc -o scanner_injector.exe scanner_injector.c -lkernel32 -luser32 -lpsapi
 ```
 
 #### Using Visual Studio:
@@ -84,7 +95,7 @@ Created a remote thread with ID 5678 in the target process
 
 ## Shellcode Example
 
-You can modify the example shellcode (`R0m4InShell[]`) based on your test requirements. Ensure the shellcode is appropriate for controlled testing environments.
+Modify the example shellcode (`R0m4InShell[]`) based on your requirements. Make sure that the shellcode is appropriate for testing purposes.
 
 ```c
 unsigned char R0m4InShell[] = {
@@ -97,18 +108,27 @@ unsigned char R0m4InShell[] = {
 
 ## Code Breakdown
 
-Here is a brief overview of the main parts of the process scanning and injection logic:
+The following snippet illustrates the core part of the updated process enumeration using `EnumProcesses` and the rest of the injection logic:
 
 ```c
-HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-Proc.dwSize = sizeof(PROCESSENTRY32);
-if (Process32First(hSnapshot, &Proc)) {
-    do {
-        if (wcscmp(Proc.szExeFile, target) == 0) {
-            PID = Proc.th32ProcessID;
-            break;
+DWORD aProcesses[1024], cbNeeded, cProcesses;
+if (!EnumProcesses(aProcesses, sizeof(aProcesses), &cbNeeded)) {
+    return 1;
+}
+
+cProcesses = cbNeeded / sizeof(DWORD);
+for (unsigned int i = 0; i < cProcesses; i++) {
+    if (aProcesses[i] != 0) {
+        hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, aProcesses[i]);
+        if (hProcess != NULL) {
+            GetModuleBaseName(hProcess, NULL, szProcessName, sizeof(szProcessName)/sizeof(TCHAR));
+            if (wcscmp(szProcessName, target) == 0) {
+                PID = aProcesses[i];
+                break;
+            }
+            CloseHandle(hProcess);
         }
-    } while (Process32Next(hSnapshot, &Proc));
+    }
 }
 
 hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, PID);
@@ -121,6 +141,4 @@ hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)rBuffer,
 
 ## Disclaimer
 
-This tool is designed for educational purposes only. Unauthorized use of this tool for malicious purposes can lead to legal consequences. The developer is not responsible for any damage caused by misuse. Always ensure you have explicit permission to test and inject into a target process, especially in live environments.
-
----
+This tool is for **educational purposes only**. Misuse of this tool can lead to severe legal consequences. The developer is not responsible for any damages caused by the misuse of this tool. Always ensure you have the proper permissions to test and inject into processes, especially in production environments.
